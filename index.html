@@ -213,7 +213,7 @@ function render() {
     }
     d.className = 'c' +
       (puzzle[i] ? '' : ' u') +
-      (v && v !== solution[i] ? ' err' : '') +
+      (v && PEERS[i].some(p => board[p] === v) ? ' err' : '') + // red only on a visible rule clash, never vs the solution
       (i === sel ? ' sel' : hl && v === hl ? ' same' :
         sel != null && (r(i) === r(sel) || c(i) === c(sel) || b(i) === b(sel)) ? ' peer' : '');
   });

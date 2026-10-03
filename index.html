@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#1e3a8a">
+<title>Sudoku</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root {
+    --bg: #f5f5f4; --fg: #1c1917; --muted: #78716c; --line: #a8a29e; --thick: #1c1917;
+    --cell: #fff; --peer: #e7e5e4; --same: #bfdbfe; --sel: #93c5fd; --user: #1d4ed8; --err: #dc2626;
+    --btn: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0a09; --fg: #e7e5e4; --muted: #a8a29e; --line: #44403c; --thick: #d6d3d1;
+      --cell: #1c1917; --peer: #292524; --same: #1e3a8a; --sel: #2563eb; --user: #93c5fd; --err: #f87171;
+      --btn: #1c1917;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--fg);
+    font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center;
+    padding: max(12px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
+    gap: 14px; user-select: none;
+  }
+  header { width: 100%; max-width: 480px; display: flex; gap: 8px; align-items: center; }
+  select, button { font: inherit; color: var(--fg); background: var(--btn); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  #grid {
+    width: min(100%, 480px, 62dvh); aspect-ratio: 1; display: grid; grid-template-columns: repeat(9, 1fr);
+    border: 2px solid var(--thick); background: var(--cell);
+  }
+  .c {
+    display: flex; align-items: center; justify-content: center; font-size: min(6.5vw, 30px, 4dvh);
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .c:nth-child(9n) { border-right: 0; }
+  .c:nth-child(9n+3), .c:nth-child(9n+6) { border-right: 2px solid var(--thick); }
+  .c:nth-child(n+19):nth-child(-n+27), .c:nth-child(n+46):nth-child(-n+54) { border-bottom: 2px solid var(--thick); }
+  .c:nth-child(n+73) { border-bottom: 0; }
+  .c.u { color: var(--user); }
+  .c.peer { background: var(--peer); }
+  .c.same { background: var(--same); }
+  .c.sel { background: var(--sel); }
+  .c.err { color: var(--err); }
+  #pad { width: min(100%, 480px); display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
+  #pad button { padding: 6px 0; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+  #pad b { font-size: 26px; font-weight: 500; }
+  #pad small { font-size: 12px; color: var(--muted); }
+  #pad button.on { background: var(--same); }
+  #pad button.done { visibility: hidden; }
+  .tools { display: flex; gap: 8px; }
+  #pencil.on { background: var(--same); }
+  .n { width: 100%; height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); font-size: min(3vw, 13px, 1.8dvh); color: var(--muted); }
+  .n span { display: flex; align-items: center; justify-content: center; }
+  .n .x { opacity: .2; }
+  .n .h { color: var(--user); font-weight: 700; }
+  #win { font-size: 20px; font-weight: 600; min-height: 1em; }
+</style>
+</head>
+<body>
+<header>
+  <select id="diff">
+    <option value="42">Facile</option>
+    <option value="34">Medio</option>
+    <option value="28">Difficile</option>
+    <option value="24">Esperto</option>
+  </select>
+  <button id="new">Nuova partita</button>
+</header>
+<div id="grid"></div>
+<div id="pad"></div>
+<div class="tools"><button id="erase">Cancella</button><button id="pencil">Appunti</button></div>
+<div id="win"></div>
+
+<script>
+// ---------- generator ----------
+const r = i => i / 9 | 0, c = i => i % 9, b = i => (r(i) / 3 | 0) * 3 + (c(i) / 3 | 0);
+const PEERS = [...Array(81)].map((_, i) =>
+  [...Array(81).keys()].filter(j => j !== i && (r(j) === r(i) || c(j) === c(i) || b(j) === b(i))));
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+function cands(g, i) {
+  let m = 0;
+  for (const p of PEERS[i]) m |= 1 << g[p];
+  const out = [];
+  for (let n = 1; n <= 9; n++) if (!(m >> n & 1)) out.push(n);
+  return out;
+}
+
+// Most-constrained empty cell, or -1 if full. Returns null on dead end.
+function pick(g) {
+  let best = -1, bc = null;
+  for (let i = 0; i < 81; i++) if (!g[i]) {
+    const cs = cands(g, i);
+    if (!cs.length) return null;
+    if (!bc || cs.length < bc.length) { best = i; bc = cs; if (cs.length === 1) break; }
+  }
+  return [best, bc];
+}
+
+function fill(g) {
+  const p = pick(g);
+  if (!p) return false;
+  const [i, cs] = p;
+  if (i < 0) return true;
+  for (const v of shuffle(cs)) { g[i] = v; if (fill(g)) return true; }
+  g[i] = 0;
+  return false;
+}
+
+function countSolutions(g, limit = 2) {
+  const p = pick(g);
+  if (!p) return 0;
+  const [i, cs] = p;
+  if (i < 0) return 1;
+  let n = 0;
+  for (const v of cs) { g[i] = v; n += countSolutions(g, limit - n); if (n >= limit) break; }
+  g[i] = 0;
+  return n;
+}
+
+// ponytail: difficulty = clue count only; a logic-technique grader would rate puzzles more faithfully.
+function generate(clues) {
+  const solution = Array(81).fill(0);
+  fill(solution);
+  const puzzle = solution.slice();
+  let left = 81;
+  for (const i of shuffle([...Array(81).keys()])) {
+    if (left <= clues) break;
+    const v = puzzle[i];
+    puzzle[i] = 0;
+    if (countSolutions(puzzle) !== 1) puzzle[i] = v; else left--;
+  }
+  return { puzzle, solution };
+}
+
+// ---------- game ----------
+const $ = id => document.getElementById(id);
+let S; // { puzzle, solution, board, notes: bitmask per cell, diff, sel: selected cell, num: armed number, pencil: notes mode }
+
+const cells = [...Array(81)].map((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'c';
+  d.onclick = () => tapCell(i);
+  $('grid').append(d);
+  return d;
+});
+const pads = [...Array(9)].map((_, k) => {
+  const n = k + 1, btn = document.createElement('button');
+  btn.innerHTML = `<b>${n}</b><small></small>`;
+  btn.onclick = () => {
+    if (S.sel != null && !S.puzzle[S.sel]) write(S.sel, n); // cell selected: fill it
+    else { S.num = S.num === n ? 0 : n; S.sel = null; }
+    render();
+  };
+  $('pad').append(btn);
+  return btn;
+});
+
+// Number armed: empty cell gets it, same number disarms, any other number becomes the armed one.
+// No number armed: toggle cell selection.
+function tapCell(i) {
+  const v = S.board[i];
+  if (!S.num) S.sel = S.sel === i ? null : i;
+  else if (!v) write(i, S.num);
+  else if (v === S.num) S.num = 0;
+  else S.num = v;
+  render();
+}
+
+// Toggles value n, or note n in notes mode (max 8 per cell).
+function write(i, n) {
+  if (!S.pencil) { S.board[i] = S.board[i] === n ? 0 : n; return; }
+  const m = S.notes[i] ^ (1 << n);
+  if (!S.board[i] && m.toString(2).split('1').length - 1 <= 8) S.notes[i] = m;
+}
+
+// Clears the value first, then the notes.
+$('erase').onclick = () => {
+  const i = S.sel;
+  if (i != null && !S.puzzle[i]) S.board[i] ? S.board[i] = 0 : S.notes[i] = 0;
+  render();
+};
+$('pencil').onclick = () => { S.pencil = !S.pencil; render(); };
+$('new').onclick = () => newGame(+$('diff').value);
+
+function newGame(diff) {
+  const { puzzle, solution } = generate(diff);
+  S = { puzzle, solution, board: puzzle.slice(), notes: Array(81).fill(0), diff, sel: null, num: 0, pencil: false };
+  render();
+}
+
+function render() {
+  const counts = Array(10).fill(0);
+  S.board.forEach(v => counts[v]++);
+  if (counts[S.num] >= 9) S.num = 0;
+  const { board, puzzle, solution, sel, num } = S;
+  const hl = num || (sel != null && board[sel]);
+  cells.forEach((d, i) => {
+    const v = board[i];
+    if (v || !S.notes[i]) d.textContent = v || '';
+    else {
+      // Notes clashing with a placed peer are dimmed, not deleted, so they come back if the peer changes.
+      let used = 0;
+      for (const p of PEERS[i]) used |= 1 << board[p];
+      d.innerHTML = '<div class="n">' + [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => S.notes[i] >> n & 1
+        ? `<span class="${used >> n & 1 ? 'x' : ''} ${n === hl ? 'h' : ''}">${n}</span>` : '<span></span>').join('') + '</div>';
+    }
+    d.className = 'c' +
+      (puzzle[i] ? '' : ' u') +
+      (v && v !== solution[i] ? ' err' : '') +
+      (i === sel ? ' sel' : hl && v === hl ? ' same' :
+        sel != null && (r(i) === r(sel) || c(i) === c(sel) || b(i) === b(sel)) ? ' peer' : '');
+  });
+  pads.forEach((btn, k) => {
+    const left = 9 - counts[k + 1];
+    btn.querySelector('small').textContent = left;
+    btn.classList.toggle('on', num === k + 1);
+    btn.classList.toggle('done', left <= 0);
+  });
+  $('pencil').classList.toggle('on', !!S.pencil);
+  $('diff').value = S.diff;
+  $('win').textContent = board.every((v, i) => v === solution[i]) ? 'Risolto! 🎉' : '';
+  try { localStorage.setItem('sudoku', JSON.stringify(S)); } catch {}
+}
+
+try { S = JSON.parse(localStorage.getItem('sudoku')); } catch {}
+if (S) S.notes ||= Array(81).fill(0); // saves from before notes existed
+S ? render() : newGame(34);
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>

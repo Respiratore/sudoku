@@ -1,5 +1,6 @@
-// Offline cache. Bump the version when you change any file so phones pick up the update.
-const CACHE = 'sudoku-v3';
+// Offline cache. The name carries the release version (same as the git tag): change it at every release,
+// otherwise phones keep serving the old files.
+const CACHE = 'sudoku-1.0';
 const FILES = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))));

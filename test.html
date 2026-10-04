@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Sudoku tests</title>
+<!-- Regression check for the input rules. Open via the local server: http://localhost:8123/test.html -->
+<pre id="out">running…</pre>
+<iframe id="f" style="width:375px;height:700px"></iframe>
+<script>
+const saved = localStorage.getItem('sudoku'); // tests share storage with the real game: put it back at the end
+const f = document.getElementById('f'), out = [];
+f.onload = async () => {
+  const g = x => f.contentWindow.eval(x); // page state lives in let/const, not on window
+  const S = () => g('S'), cells = g('cells'), pads = g('pads'), PEERS = g('PEERS'), $ = id => f.contentDocument.getElementById(id);
+  const ok = (c, m) => out.push((c ? 'OK   ' : 'FAIL ') + m);
+  const reset = () => { g("newGame(34)"); };
+  const empty = () => S().board.findIndex(v => !v), given = () => S().puzzle.findIndex(Boolean);
+
+  reset(); let e = empty();
+  cells[e].click(); ok(S().sel === e, 'tap cell selects');
+  cells[e].click(); ok(S().sel === null, 'tap again deselects');
+  pads[4].click(); ok(S().num === 5, 'tap pad arms');
+  pads[4].click(); ok(S().num === 0, 'tap pad again disarms');
+
+  reset(); e = empty(); pads[4].click();
+  cells[e].click(); ok(S().board[e] === 5 && S().num === 5, 'armed + empty cell places, stays armed');
+  cells[e].click(); ok(S().board[e] === 0 && S().num === 5, 'armed + own cell same number removes, stays armed');
+
+  reset(); let gi = given(), gv = S().puzzle[gi]; pads[gv - 1].click();
+  cells[gi].click(); ok(S().board[gi] === gv && S().num === 0, 'armed + given cell same number disarms, keeps cell');
+  pads[gv - 1].click(); const o = S().puzzle.findIndex(v => v && v !== gv);
+  cells[o].click(); ok(S().num === S().puzzle[o] && S().board[o] === S().puzzle[o], 'armed + other number arms that one');
+
+  reset(); e = empty(); cells[e].click();
+  pads[4].click(); ok(S().board[e] === 5 && S().sel === e && !S().num, 'selected cell + pad places');
+  pads[6].click(); ok(S().board[e] === 7, 'other pad replaces');
+  pads[6].click(); ok(S().board[e] === 0, 'same pad removes');
+  pads[6].click(); $('erase').click(); ok(S().board[e] === 0, 'erase clears value');
+  cells[e].click(); gi = given(); cells[gi].click(); pads[0].click();
+  ok(S().board[gi] === S().puzzle[gi] && S().num === 1, 'selected given cell + pad arms, keeps cell');
+
+  // red = visible clash only
+  reset(); let w, q;
+  for (e = 0; e < 81; e++) if (!S().board[e]) {
+    const used = new Set(PEERS[e].map(p => S().board[p]));
+    w = [1, 2, 3, 4, 5, 6, 7, 8, 9].find(n => n !== S().solution[e] && !used.has(n));
+    q = PEERS[e].find(p => S().board[p]);
+    if (w && q != null) break;
+  }
+  cells[e].click(); pads[w - 1].click(); ok(!cells[e].classList.contains('err'), 'wrong but legal number is not red');
+  pads[S().board[q] - 1].click(); ok(cells[e].classList.contains('err') && cells[q].classList.contains('err'), 'clash marks both red');
+
+  // notes
+  reset(); let p, n;
+  find: for (e = 0; e < 81; e++) if (!S().board[e]) for (p of PEERS[e]) if (!S().board[p]) for (n = 1; n <= 9; n++)
+    if (![...PEERS[e], ...PEERS[p]].some(x => S().board[x] === n)) break find;
+  $('pencil').click(); cells[e].click();
+  pads[n - 1].click(); ok(S().notes[e] === 1 << n && !S().board[e], 'notes mode adds a note');
+  pads[n - 1].click(); ok(S().notes[e] === 0, 'same note again removes it');
+  for (let k = 0; k < 9; k++) pads[k].click();
+  ok(S().notes[e].toString(2).split('1').length - 1 === 8, 'at most 8 notes');
+  $('erase').click(); ok(S().notes[e] === 0, 'erase clears notes');
+  pads[n - 1].click(); $('pencil').click(); cells[e].click();
+  cells[p].click(); pads[n - 1].click(); ok(cells[e].querySelector('.x')?.textContent == n, 'note dimmed when a peer takes the number');
+  pads[n - 1].click(); ok(!cells[e].querySelector('.x') && cells[e].textContent == n, 'note back when the peer is cleared');
+
+  // pad counters
+  reset(); g('S.board = S.solution.slice(); render()');
+  ok(pads[3].querySelector('small').textContent === '0' && getComputedStyle(pads[3]).visibility === 'visible', 'complete number stays, shows 0');
+  g('S.board[S.board.findIndex(v => v !== 4)] = 4; render()');
+  ok(pads[3].querySelector('small').textContent === '-1', 'tenth copy shows -1');
+
+  // new game confirmation
+  reset(); const before = S().puzzle.join(''), d = $('diff'), ask = $('ask');
+  const answer = v => new Promise(r => { ask.addEventListener('close', r, { once: true }); ask.querySelector(`[value=${v}]`).click(); });
+  d.value = '24'; d.dispatchEvent(new Event('change')); ok(ask.open, 'difficulty change asks');
+  await answer('no'); ok(S().puzzle.join('') === before && d.value === '34', 'cancel keeps game and difficulty');
+  $('new').click(); ok(ask.open, 'new game asks');
+  await answer('yes'); ok(S().puzzle.join('') !== before, 'confirm starts a new game');
+
+  saved === null ? localStorage.removeItem('sudoku') : localStorage.setItem('sudoku', saved);
+  const fails = out.filter(l => l.startsWith('FAIL')).length;
+  document.getElementById('out').textContent = (fails ? fails + ' FAILED' : 'ALL ' + out.length + ' PASSED') + '\n\n' + out.join('\n');
+};
+f.src = 'index.html';
+</script>
